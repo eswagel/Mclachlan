@@ -100,18 +100,16 @@ const JULIA_FUNCTIONS_TO_MATHEMATICA = Dict(
     :!= => "Unequal",
 )
 
-convert(::Type{MathLink.WExpr}, x::MathLink.WSymbol)=W`Identity`(x)
-
 expr_to_mathematica(expr::Expr)::MathLink.WTypes=expr_to_mathematica(expr.head,expr.args)
 #=expr_to_mathematica(function_name::String,args::Vector)=begin
     println(function_name,": ",args)
     if haskey(JULIA_FUNCTIONS_TO_MATHEMATICA, Symbol(function_name))
-        return W`$(JULIA_FUNCTIONS_TO_MATHEMATICA[Symbol(function_name)])`(expr_to_mathematica.(args)...)
+        return W"$(JULIA_FUNCTIONS_TO_MATHEMATICA[Symbol(function_name)])"(expr_to_mathematica.(args)...)
     else
-        return W`$(function_name)`(expr_to_mathematica.(args)...)
+        return W"$(function_name)"(expr_to_mathematica.(args)...)
     end
 end=#
-expr_to_mathematica_differential_checker(function_head::Symbol,args::Vector,::Nothing)::MathLink.WExpr=W`$(string(function_head))`(expr_to_mathematica.(args)...)
+expr_to_mathematica_differential_checker(function_head::Symbol,args::Vector,::Nothing)::MathLink.WExpr=W"$(string(function_head))"(expr_to_mathematica.(args)...)
 expr_to_mathematica_differential_checker(function_head::Symbol,args::Vector,m::RegexMatch)::MathLink.WExpr=begin
     return MathLink.WSymbol("D")(expr_to_mathematica.(args)...,MathLink.WSymbol("$(m[1])"))
 end
@@ -214,7 +212,7 @@ mathematica_to_expr(symbol::MathLink.WSymbol,m::RegexMatch)=begin
     (vars,)=scalarize.(Symbolics.@variables $varname[1:parse(Int8,m[2])])
     vars[parse(Int8,m[2])]
 end
-mathematica_to_expr(mathematica::MathLink.WReal)=mathematica_to_expr(weval(W`N`(mathematica)))
+mathematica_to_expr(mathematica::MathLink.WReal)=mathematica_to_expr(weval(W"N"(mathematica)))
 mathematica_to_expr(num::T) where T<:Number=begin
     rounded = round(num)
     if abs(rounded-num)< 1e-10

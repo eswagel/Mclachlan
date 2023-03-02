@@ -6,9 +6,10 @@ using CSV
 using StaticArrays
 using SnoopCompile
 using ProfileView
+using JET
+using Profile
 
 const cwd=splitdir(Base.source_path())[1]
-
 
 include("HermiteSymbolic.jl");
 include("../JuliaMathematica/SymbolicsMathLink.jl");
@@ -69,43 +70,15 @@ function performMclachlan(power::Int, Lop::Operator, params::Vector{Num}, useEve
 
     return (Ks=Ksol, expr=Mclachlan, dt=dt, ddt=ddt)
 end;
-#=
-println("Building function")
-    @time Mclachlanfunc=eval(last(build_function(Mclachlan,ddt,dn,x #=Dummy var=#,t,expression=Val{false},linenumbers=false,parallel=Symbolics.MultithreadedForm()))) #in-place version
-    println("Solving for u0")
-    @time u0=calcu0(power,dn,Lop,Ldag)
 
-    #=possibledu0=solve(SymPy.subs.(SymPy.subs.(Mclachlansubs,Ref(Dict(dn[i]=>u0[i] for i in 1:length(dn)))),Ref(Dict(t=>0))),ddt)
-    du0=[nothing for i=0:power]
-    for i in possibledu0
-        if !any(i.<=0)
-            du0=[x for x in i]
-            break
-        end
-    end=#
-    println("Numerical solving")
-    du0=zeros(power+1)
-    tspan=(0.0,tfinal)
-    f=DAEFunction(Mclachlanfunc,syms=Symbol.(dn))
-    prob=DAEProblem(f,du0,u0,tspan,differential_vars=fill(true,power+1))
-    return (Ks=Ksol,solution=@time solve(prob,daskr()))=#
-#For Fokker-Planck:
+function calcu0(power::Int, H::Operator)::Vector{Num}
+    @variables dn
+    mdn = W"dn"
+    psi = Hermite(1, -dn, 0, power)
 
-function calcu0(power::Int, Lop::Operator, Ldag::Operator, even::Bool=false)
-    @variables dnarr[1:power+1]
-    dn::Vector{Num} = scalarize(dnarr::Symbolics.Arr{Num, 1})::Vector{Num}
-    mdn = expr_to_mathematica(dn)
-    H = Ldag*Lop
-    psis = genPsi(power, ones(Int, power+1), dn, even)
+    energy = expr_to_mathematica(GaussianIntegral(psi*(H*psi)))
 
-    println(psis)
-
-    println(expand(GaussianIntegral(psis[2]*(H*psis[2]))*dn[2]^4.5))
-
-    energies = expr_to_mathematica(Num[GaussianIntegral(psi*(H*psi)) for psi in psis])
-    
-    #weval(W`Table`(W`Minimize`(W`D`(W`Part`(energies,W`j`),W`Part`(mdn,W`j`)),W`Part`(mdn,W`j`)),W`{j,1,$(power+1)}`))
-    return 2
+    mathematica_to_expr(weval(W"SolveValues"(W"Equal"(W"D"(energy,mdn),0),mdn,W"Reals")))
 end;
 
 params = @variables a c g;
@@ -113,25 +86,25 @@ params = @variables a c g;
 param_vals = [5.0, 1.0, 1.0]
 #a, c, g = (5,1,2);
 
-Kop=(a*X+c*X^3)+(g*Dx);
 Lop=Dx*(a*X+c*X^3)+(g*Dx^2);
 Ldag=-(a*X+c*X^3)*Dx+g*Dx^2;
 
 tfinal=10.0;
 
 result=@time performMclachlan(0, Lop, params, true);
+#@code_warntype performMclachlan(1, Lop, params, true)
 
 mdt = expr_to_mathematica(result.dt)
 
+mexpr = @time W"Thread"(W"Equal"(expr_to_mathematica(result.expr),0));
+initconds=weval(W"Table"(W"Equal"(W"Part"(W"ReplaceAll"(mdt,W`t->0`),W"i"),W"Part"(W"List"(2.56, 1.2), W"i")),W"List"(W"i",1,W"Length"(mdt))))
 
+mexprWithParams=@time weval(mexpr; Dict(Symbol.(params).=>param_vals)...);
 
-mexpr = @time W`Thread`(W`Equal`(expr_to_mathematica(result.expr),0));
-initconds=weval(W`Table`(W`Equal`(W`Part`(W`ReplaceAll`(mdt,W`t->0`),W`i`),W`2.56`),W`List`(W`i`,1,W`Length`(mdt))))
+ndsol=@time weval(W"NDSolveValue"(W"Join"(mexprWithParams, initconds),mdt, W`{t,0,$tfinal}`,W`Method->{"EquationSimplification"->"Residual"}`));
+weval(W"ReplaceAll"(ndsol, W`t->$tfinal`))
+calcu0(0, substitute(Ldag*Lop, Dict(params.=>param_vals)))
 
-mexprWithParams=weval(W`ReplaceAll`(mexpr,expr_to_mathematica(Dict(params.=>param_vals))));
-
-ndsol=weval(W`NDSolveValue`(W`Join`(mexprWithParams, initconds),mdt, W`{t,0,$tfinal}`,W`Method->{"EquationSimplification"->"Residual"}`));
-weval(W`ReplaceAll`(ndsol, W`t->$tfinal`))
 
 (;Ks,solution)=result;
 solution(tfinal)

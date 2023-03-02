@@ -5,6 +5,8 @@ using Symbolics
 import Symbolics: substitute, derivative#So I can overload them
 using MathLink
 
+@variables Pi
+
 iszero(x::Num)=isprimitivetype(typeof(x.val)) && x.val==0
 scalarize(arr::Symbolics.Arr{Num,1})::Vector{Num}=Num[arr[i] for i=1:length(arr)]
 Symbolics.derivative(::Union{Int8, Int16, Int32, Int64, Int128, UInt8, UInt16, UInt32, UInt64, UInt128, Float16, Float32, Float64, ComplexF16, ComplexF32, ComplexF64},args...)=0
@@ -26,10 +28,7 @@ Hermite(a::NumSym,b::NumSym,order::Int)=Hermite(1,a,b,order)
 Symbolics.substitute(herm::Hermite, args...)::Hermite=Hermite(Symbolics.substitute(herm.factor, args...), Symbolics.substitute(herm.a, args...), Symbolics.substitute(herm.b, args...), herm.order)
 #From two arrays, create a Dict for substitution and substitute
 Symbolics.substitute(herm::Hermite, syms1::Union{Vector{Num},Tuple{Num}}, syms2::Union{Vector{Num},Tuple{Num}})::Hermite = substitute(herm, Dict(syms1.=>syms2))
-Symbolics.substitute(herm::Num, syms1::Union{Vector{Num},Tuple{Num}}, syms2::Union{Vector{Num},Tuple{Num}})::Num = begin
-    println(herm)
-    substitute(herm, Dict(syms1.=>syms2))
-end
+Symbolics.substitute(herm::Num, syms1::Union{Vector{Num},Tuple{Num}}, syms2::Union{Vector{Num},Tuple{Num}})::Num = substitute(herm, Dict(syms1.=>syms2))
 
 Base.convert(::Type{Num},herm::Hermite)=herm.factor*x^herm.order*exp(herm.a*x^2+herm.b*x)
 
@@ -181,6 +180,11 @@ Base.:^(terms::Terms, p::Integer)=begin
     new_t
 end
 
+function HalfIntegerGamma(n::Int)
+    """Gamma function of n+1/2"""
+    factorial(2n)/(4^n * factorial(n)) * sqrt(Pi)
+end
+
 #Integration of a Hermite basis state with a, b, and order.
 GaussianIntegral(herm::Hermite)::Num=begin
     if iszero(herm.factor)
@@ -193,7 +197,7 @@ GaussianIntegral(herm::Hermite)::Num=begin
             if isodd(order)
                 return zero(Num)
             else
-                return herm.factor*(-a)^(-(1/2) - order/2)*SpecialFunctions.gamma((1 + order)/2)
+                return herm.factor*(-a)^(-(1//2) - order//2)*HalfIntegerGamma(Int(order/2))
             end
         elseif order==0
             result=1/sqrt(-a)
@@ -212,7 +216,7 @@ GaussianIntegral(herm::Hermite)::Num=begin
         else
             throw(DomainError(order,"Integral for this order Hermite polynomial has not been calculated."))
         end
-        return herm.factor*result*sqrt(pi)*exp(-b^2/(4a))
+        return herm.factor*result*sqrt(Pi)*exp(-b^2/(4a))
     end
 end
 GaussianIntegral(::Type{Function}, herm::Hermite)::Expr = GaussianIntegral(Function, herm, Val(iszero(herm.factor)))
@@ -250,7 +254,7 @@ GaussianIntegral(::Type{Function}, herm::Hermite, ::Val{3})::Expr=begin
     else
         throw(DomainError(order,"Integral for this order Hermite polynomial has not been calculated."))
     end
-    return Expr(:call,:*,Symbolics.toexpr(herm.factor),Symbolics.toexpr(result),Symbolics.toexpr(sqrt(pi)),Expr(:call,:exp,Expr(:call,:/,Expr(:call,:^,b,2),Expr(:call,:*,4,a))))
+    return Expr(:call,:*,Symbolics.toexpr(herm.factor),Symbolics.toexpr(result),Symbolics.toexpr(sqrt(Pi)),Expr(:call,:exp,Expr(:call,:/,Expr(:call,:^,b,2),Expr(:call,:*,4,a))))
 end
 
 GaussianIntegral(::Type{MathLink.WExpr}, herm::Hermite)::MathLink.WExpr = GaussianIntegral(MathLink.WExpr, herm, Val(iszero(herm.factor)))
@@ -288,7 +292,7 @@ GaussianIntegral(::Type{MathLink.WExpr}, herm::Hermite, ::Val{3})::MathLink.WExp
     else
         throw(DomainError(order,"Integral for this order Hermite polynomial has not been calculated."))
     end
-    return W`Times`(expr_to_mathematica(herm.factor),expr_to_mathematica(result),expr_to_mathematica(sqrt(pi)),W`Exp`(W`Divide`(W`Power`(b,2),W`Times`(4,a))))
+    return W`Times`(expr_to_mathematica(herm.factor),expr_to_mathematica(result),expr_to_mathematica(sqrt(Pi)),W`Exp`(W`Divide`(W`Power`(b,2),W`Times`(4,a))))
 end
 #=
 GaussianIntegral(herm::Hermite)::Num=GaussianIntegral(herm, Val(iszero(herm.factor)))
