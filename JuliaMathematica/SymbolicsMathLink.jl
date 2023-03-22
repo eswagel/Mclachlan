@@ -1,6 +1,8 @@
 using Symbolics
 using MathLink
 
+const Mtypes = Union{MathLink.WTypes,Int8,Int16,Int32,Int64,Int128,UInt8,UInt16,UInt32,UInt64,UInt128,Float16,Float32,Float64,ComplexF16,ComplexF32,ComplexF64}
+
 function decode_piecewise(lists::Vector{Vector{Num}}, lastval)
     @nospecialize
     second_to_lastval::Vector = lists[end]
@@ -25,10 +27,11 @@ function decode_piecewise(lists::Vector{Vector})
 end
 
 numize_if_not_vector(x::Vector{Num})=x
-numize_if_not_vector(x::Vector)=Num.(x)
+numize_if_not_vector(x::Vector)=numize_if_not_vector.(x)
 numize_if_not_vector(x::Tuple)=[x...]
 numize_if_not_vector(x::Num)=x
 numize_if_not_vector(x)=Num(x)
+numize_if_not_vector(x::Pair)=x
 
 
 # Define a dictionary that maps Mathematica function names to their Julia equivalents
@@ -66,7 +69,8 @@ const MATHEMATICA_TO_JULIA_FUNCTIONS::Dict{String,Function} = Dict(
     "Greater" => >,
     "Less" => <,
     "GreaterEqual" => >=,
-    "LessEqual" => <=
+    "LessEqual" => <=,
+    "Complex" => (a,b)->a+b*im,
 )
 
 const JULIA_FUNCTIONS_TO_MATHEMATICA = Dict(
@@ -100,7 +104,7 @@ const JULIA_FUNCTIONS_TO_MATHEMATICA = Dict(
     :!= => "Unequal",
 )
 
-expr_to_mathematica(expr::Expr)::MathLink.WTypes=expr_to_mathematica(expr.head,expr.args)
+expr_to_mathematica(expr::Expr)::Mtypes=expr_to_mathematica(expr.head,expr.args)
 #=expr_to_mathematica(function_name::String,args::Vector)=begin
     println(function_name,": ",args)
     if haskey(JULIA_FUNCTIONS_TO_MATHEMATICA, Symbol(function_name))
@@ -117,7 +121,7 @@ expr_to_mathematica_vector_handler(expr::MathLink.WSymbol,index::Integer)=MathLi
 expr_to_mathematica_vector_handler(expr::MathLink.WExpr,index::Integer)=begin
     MathLink.WSymbol("$(expr.head.name)■$(index)")(expr.args...)
 end
-expr_to_mathematica(function_head::Symbol,args::Vector)::MathLink.WTypes=begin
+expr_to_mathematica(function_head::Symbol,args::Vector)::Mtypes=begin
     if function_head==:call
         return expr_to_mathematica(Symbol(args[1]),args[2:end])
     elseif function_head==:inv
@@ -155,7 +159,7 @@ end
 (expr_to_mathematica(num::T)::T) where {T<:Number}=num
 expr_to_mathematica(eq::Equation)::MathLink.WExpr=MathLink.WSymbol("Equal")(expr_to_mathematica(Symbolics.toexpr(eq.lhs)::Union{Expr, Symbol, Int, Float64, Rational}),expr_to_mathematica(Symbolics.toexpr(eq.rhs)::Union{Expr, Symbol, Int, Float64, Rational}))
 (expr_to_mathematica(vect::Vector{T})::MathLink.WExpr) where T=MathLink.WSymbol("List")(expr_to_mathematica.(vect)...)
-expr_to_mathematica(num::Num)::MathLink.WTypes=expr_to_mathematica(Symbolics.toexpr(num)::Union{Expr, Symbol, Int, Float64, Rational})
+expr_to_mathematica(num::Num)::Mtypes=expr_to_mathematica(Symbolics.toexpr(num)::Union{Expr, Symbol, Int, Float64, Rational})
 expr_to_mathematica(dict::Dict)::MathLink.WExpr=begin
     rules = MathLink.WExpr[]
     for (key, val) in dict
@@ -167,6 +171,7 @@ expr_to_mathematica(sym::Symbolics.Symbolic)::MathLink.WExpr=begin
     expr::Expr = Symbolics.toexpr(sym)::Expr
     expr_to_mathematica(expr)
 end
+expr_to_mathematica(st::AbstractString)::MathLink.WSymbol=MathLink.WSymbol(st)
 
 expr_to_mathematica(num::Num, symbolic::Val{true})::MathLink.WExpr=begin
     expr::Expr = Symbolics.toexpr(num)::Expr
@@ -223,3 +228,8 @@ mathematica_to_expr(num::T) where T<:Number=begin
 end
 
 include("DSolveMathematica.jl")
+
+function wcall(head::AbstractString, args...; kwargs...)
+    return wcall(head, expr_to_mathematica.(args)...;)
+end
+wcall(head::AbstractString, args::Vararg{Mtypes}; kwargs...) = mathematica_to_expr(weval(MathLink.WSymbol(head)(args...; kwargs...)))

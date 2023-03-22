@@ -5,6 +5,18 @@ using Symbolics
 import Symbolics: substitute, derivative#So I can overload them
 using MathLink
 
+
+#Function to calculate the physicist's Hermite polynomial
+function hermite_poly(n::Int,x)
+    if n==0
+        return one(x)
+    elseif n==1
+        return 2x
+    else
+        return 2x*hermite_poly(n-1,x)-2(n-1)*hermite_poly(n-2,x)
+    end
+end
+
 @variables Pi
 
 iszero(x::Num)=isprimitivetype(typeof(x.val)) && x.val==0
@@ -182,7 +194,7 @@ end
 
 function HalfIntegerGamma(n::Int)
     """Gamma function of n+1/2"""
-    factorial(2n)/(4^n * factorial(n)) * sqrt(Pi)
+    factorial(2n)/(4^n * factorial(n)) * sqrt(pi)
 end
 
 #Integration of a Hermite basis state with a, b, and order.
@@ -403,7 +415,8 @@ operator_multiplication_parallel_handler(op::Operator, terms::Terms,::Val{false}
 end
 Base.:*(op::Operator, terms::Terms)=operator_multiplication_parallel_handler(op,terms,Val(length(terms)>30))
 #Or the operator can be called directly
-(op::Operator)(herm::HermiteType)::Terms=op*herm
+(op::Operator)(herm::Terms)::Terms=op*herm
+(op::Operator)(herm::Hermite)::Terms=op*herm
 
 #You can also raise an operator to an integer power
 Base.:^(op::Operator,expon::Int)=begin
@@ -418,18 +431,25 @@ end
 #For two operators
 Base.:*(op1::Operator, op2::Operator)=Operator((herm::Hermite)->op1*(op2*herm))
 Base.:+(op1::Operator, op2::Operator)=Operator((herm::Hermite)->(op1*herm+op2*herm))
-Base.:-(op1::Operator, op2::Operator)=op1+(-1)*(op2*herm)
-Base.:/(op1::Operator, op2::Operator)=op1*(1/(op2*herm))
+Base.:-(op1::Operator, op2::Operator)=Operator((herm::Hermite)->op1*herm-(op2*herm))
+Base.:/(op1::Operator, op2::Operator)=Operator((herm::Hermite)->op1*(1/(op2*herm)))
 
 #For a non-operator and an operator
 Base.:*(@nospecialize(factor),op::Operator)=Operator((herm::Hermite)->factor*(op*herm))
+Base.:*(op::Operator,factor)=factor*op
 Base.:+(@nospecialize(factor),op::Operator)=Operator((herm::Hermite)->factor+(op*herm))
+Base.:+(op::Operator,factor)=factor+op
 Base.:-(@nospecialize(factor),op::Operator)=Operator((herm::Hermite)->factor-(op*herm))
+Base.:-(op::Operator,factor)=-(factor-op)
 Base.:/(@nospecialize(factor),op::Operator)=Operator((herm::Hermite)->factor/(op*herm))
+Base.:/(op::Operator,factor)=Operator((herm::Hermite)->(op*herm)/factor)
 
 Base.:-(op::Operator)=Operator((herm::Hermite)->-(op*herm))
 
 Symbolics.substitute(op::Operator, args...)=Operator((herm::Hermite)->Symbolics.substitute(op*herm, args...))
+
+Base.one(::Operator)=Operator((herm::Hermite)->Terms(herm))
+Base.one(::Type{Operator})=Operator((herm::Hermite)->Terms(herm))
 
 #X raises the order (like multiplying by x)
 Symbolics.@variables x t
