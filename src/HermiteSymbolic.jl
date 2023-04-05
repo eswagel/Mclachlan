@@ -106,6 +106,9 @@ Base.:*(herm1::Hermite,herm2::Hermite)::Hermite=Hermite(herm1.factor*herm2.facto
 Base.:*(factor, herm2::Hermite)::Hermite=Hermite(factor*herm2.factor,herm2.a,herm2.b,herm2.order)
 Base.:*(herm1::Hermite,factor)::Hermite=factor*herm1
 
+#Division
+Base.:/(herm::Hermite, fact)=herm*(1/fact)
+
 #Exponentiation
 Base.:^(herm::Hermite,p)::Hermite=Hermite(herm.factor^p,herm.a*p,herm.b*p,herm.order^p)
 
@@ -194,7 +197,7 @@ end
 
 function HalfIntegerGamma(n::Int)
     """Gamma function of n+1/2"""
-    factorial(2n)/(4^n * factorial(n)) * sqrt(pi)
+    factorial(big(2n))/(4^n * factorial(big(n))) * sqrt(pi)
 end
 
 #Integration of a Hermite basis state with a, b, and order.

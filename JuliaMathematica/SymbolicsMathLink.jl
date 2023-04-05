@@ -1,7 +1,7 @@
 using Symbolics
 using MathLink
 
-const Mtypes = Union{MathLink.WTypes,Int8,Int16,Int32,Int64,Int128,UInt8,UInt16,UInt32,UInt64,UInt128,Float16,Float32,Float64,ComplexF16,ComplexF32,ComplexF64}
+const Mtypes = Union{MathLink.WTypes,Int8,Int16,Int32,Int64,Int128,UInt8,UInt16,UInt32,UInt64,UInt128,Float16,Float32,Float64,ComplexF16,ComplexF32,ComplexF64,BigFloat}
 
 function decode_piecewise(lists::Vector{Vector{Num}}, lastval)
     @nospecialize
@@ -156,10 +156,10 @@ expr_to_mathematica(symbol::Symbol)::MathLink.WSymbol=begin
         return expr_to_mathematica_symbol_vector_checker(symString,m)
     end
 end
-(expr_to_mathematica(num::T)::T) where {T<:Number}=num
+(expr_to_mathematica(num::T)::T) where {T<:Mtypes}=num
 expr_to_mathematica(eq::Equation)::MathLink.WExpr=MathLink.WSymbol("Equal")(expr_to_mathematica(Symbolics.toexpr(eq.lhs)::Union{Expr, Symbol, Int, Float64, Rational}),expr_to_mathematica(Symbolics.toexpr(eq.rhs)::Union{Expr, Symbol, Int, Float64, Rational}))
 (expr_to_mathematica(vect::Vector{T})::MathLink.WExpr) where T=MathLink.WSymbol("List")(expr_to_mathematica.(vect)...)
-expr_to_mathematica(num::Num)::Mtypes=expr_to_mathematica(Symbolics.toexpr(num)::Union{Expr, Symbol, Int, Float64, Rational})
+expr_to_mathematica(num::Num)::Mtypes=expr_to_mathematica(Symbolics.toexpr(num)::Union{Expr, Symbol, Int, Float64, Rational,BigFloat})
 expr_to_mathematica(dict::Dict)::MathLink.WExpr=begin
     rules = MathLink.WExpr[]
     for (key, val) in dict
@@ -230,6 +230,6 @@ end
 include("DSolveMathematica.jl")
 
 function wcall(head::AbstractString, args...; kwargs...)
-    return wcall(head, expr_to_mathematica.(args)...;)
+    return wcall(head, expr_to_mathematica.(args)...;kwargs...)
 end
 wcall(head::AbstractString, args::Vararg{Mtypes}; kwargs...) = mathematica_to_expr(weval(MathLink.WSymbol(head)(args...; kwargs...)))
