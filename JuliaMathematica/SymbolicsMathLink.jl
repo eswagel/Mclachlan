@@ -1,7 +1,7 @@
 using Symbolics
 using MathLink
 
-const Mtypes = Union{MathLink.WTypes,Int8,Int16,Int32,Int64,Int128,UInt8,UInt16,UInt32,UInt64,UInt128,Float16,Float32,Float64,ComplexF16,ComplexF32,ComplexF64,BigFloat}
+const Mtypes = Union{MathLink.WTypes,Int8,Int16,Int32,Int64,Int128,UInt8,UInt16,UInt32,UInt64,UInt128,Float16,Float32,Float64,ComplexF16,ComplexF32,ComplexF64,BigFloat,Rational}
 
 function decode_piecewise(lists::Vector{Vector{Num}}, lastval)
     @nospecialize
