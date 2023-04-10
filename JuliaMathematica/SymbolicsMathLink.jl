@@ -1,7 +1,7 @@
 using Symbolics
 using MathLink
 
-const Mtypes = Union{MathLink.WTypes,Int8,Int16,Int32,Int64,Int128,UInt8,UInt16,UInt32,UInt64,UInt128,Float16,Float32,Float64,ComplexF16,ComplexF32,ComplexF64,BigFloat,Rational}
+const Mtypes = Union{MathLink.WTypes,Int8,Int16,Int32,Int64,Int128,UInt8,UInt16,UInt32,UInt64,UInt128,Float16,Float32,Float64,ComplexF16,ComplexF32,ComplexF64,Rational}
 
 function decode_piecewise(lists::Vector{Vector{Num}}, lastval)
     @nospecialize
@@ -31,7 +31,9 @@ numize_if_not_vector(x::Vector)=numize_if_not_vector.(x)
 numize_if_not_vector(x::Tuple)=[x...]
 numize_if_not_vector(x::Num)=x
 numize_if_not_vector(x)=Num(x)
-numize_if_not_vector(x::Pair)=x
+numize_if_not_vector(x::Pair)=numize_if_not_vector(x[1]) => numize_if_not_vector(x[2])
+
+Num(x::Complex)=Num(real(x))+Num(imag(x))*im
 
 
 # Define a dictionary that maps Mathematica function names to their Julia equivalents
@@ -159,7 +161,8 @@ end
 (expr_to_mathematica(num::T)::T) where {T<:Mtypes}=num
 expr_to_mathematica(eq::Equation)::MathLink.WExpr=MathLink.WSymbol("Equal")(expr_to_mathematica(Symbolics.toexpr(eq.lhs)::Union{Expr, Symbol, Int, Float64, Rational}),expr_to_mathematica(Symbolics.toexpr(eq.rhs)::Union{Expr, Symbol, Int, Float64, Rational}))
 (expr_to_mathematica(vect::Vector{T})::MathLink.WExpr) where T=MathLink.WSymbol("List")(expr_to_mathematica.(vect)...)
-expr_to_mathematica(num::Num)::Mtypes=expr_to_mathematica(Symbolics.toexpr(num)::Union{Expr, Symbol, Int, Float64, Rational,BigFloat})
+(expr_to_mathematica(mat::Matrix{T})::MathLink.WExpr) where T = expr_to_mathematica([mat[:,i] for i in 1:size(mat,2)])
+expr_to_mathematica(num::Num)::Mtypes=expr_to_mathematica(Symbolics.toexpr(num)::Union{Expr, Symbol, Int, Float64, Rational})
 expr_to_mathematica(dict::Dict)::MathLink.WExpr=begin
     rules = MathLink.WExpr[]
     for (key, val) in dict
@@ -172,6 +175,8 @@ expr_to_mathematica(sym::Symbolics.Symbolic)::MathLink.WExpr=begin
     expr_to_mathematica(expr)
 end
 expr_to_mathematica(st::AbstractString)::MathLink.WSymbol=MathLink.WSymbol(st)
+expr_to_mathematica(x::BigFloat)=Float64(x)
+expr_to_mathematica(x::Irrational)=Float64(x)
 
 expr_to_mathematica(num::Num, symbolic::Val{true})::MathLink.WExpr=begin
     expr::Expr = Symbolics.toexpr(num)::Expr

@@ -80,7 +80,7 @@ Broadcast.broadcast(func, terms::Terms) = Terms(Broadcast.broadcast(func, terms.
 #Derivative of terms = sum of derivatives
 Symbolics.derivative(terms::Terms, args...)::Terms=begin
     sum=Vector{Hermite}(undef,length(terms)*3)
-    Threads.@threads for i=1:length(terms)
+    for i=1:length(terms)
         @inbounds sum[(i-1)*3+1:i*3].=derivative(terms.terms[i], args...).terms
     end
     Terms(sum)
@@ -88,7 +88,7 @@ end
 
 Symbolics.substitute(terms::Terms,args...)::Terms=begin
     result=Vector{Hermite}(undef,length(terms))
-    Threads.@threads for i=1:length(terms)
+    for i=1:length(terms)
         @inbounds result[i]=substitute(terms.terms[i],args...)
     end
     return Terms(result)
@@ -197,7 +197,7 @@ end
 
 function HalfIntegerGamma(n::Int)
     """Gamma function of n+1/2"""
-    factorial(big(2n))/(4^n * factorial(big(n))) * sqrt(pi)
+    Float64(factorial(big(2n))/(4^n * factorial(big(n)))) * sqrt(pi)
 end
 
 #Integration of a Hermite basis state with a, b, and order.
