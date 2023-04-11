@@ -5,7 +5,7 @@ Lop=Dx*(a*X+c*X^3)+(g*Dx^2);
 Ldag=-(a*X+c*X^3)*Dx+g*Dx^2;
 H = Ldag*Lop;
 
-tfinal=1000.0;
+tfinal=10.0;
 skip = 2;
 power = 0:1:4;
 
@@ -38,18 +38,28 @@ exactnormed = exactsol/wcall("Integrate",exactsol,[x,W`-Infinity`,"Infinity"])
 stats1=[round.([solutions[1,1,i+1].energy, solutions[1,1,i+1].variance, solutions[1,1,i+1].kurtosis],sigdigits=3) for i=power]
 stats1string = ""
 for i=1:length(stats1)
-    stats1string = stats1string * (i==1 ? "Gaussian" : "$i-Hermite") * "&" * join(stats1[i],"&") * "\\ \\hline \n"
+    stats1string = stats1string * (i==1 ? "Gaussian" : "$i-Hermite") * " & " * join(stats1[i]," & ") * "\\\\ \\hline \n"
 end   
-stats1string
+println(stats1string)
 
-isgreater=[sum(map(x->x.energy,solutions[:,:,i]).<map(x->x.energy,solutions[:,:,j])) for i=1:length(power), j=1:length(power)]
-isgreaterstring=""
-for i=1:length(power)
-        isgreaterstring = isgreaterstring * (i==1 ? "Gaussian" : "$i-Hermite") * " & " * join(isgreater[i,:]," & ") * " \\\\ \\hline \n"
+#This checks whether the energy of the solutions for the i-Hermite ansatz is lower than the energy of the solutions for the j-Hermite ansatz, or if the i-Hermite ansatz is not NaN and the j-Hermite ansatz is NaN
+function isbetterfit(sol1, sol2)
+    if isnan(sol2.energy)
+        return !isnan(sol1.energy)
+    else
+        return sol1.energy < sol2.energy
+    end
 end
-println(isgreaterstring)
+isbetter = [sum(isbetterfit.(solutions[:,:,i],solutions[:,:,j])) for i=1:length(power), j=1:length(power)]
+#isgreater=[sum((map(x->x.energy,solutions[:,:,i]).<map(x->x.energy,solutions[:,:,j])))  for i=1:length(power), j=1:length(power)]
+isbetterstring=""
+for i=1:length(power)
+    isbetterstring = isbetterstring * (i==1 ? "Gaussian" : "$i-Hermite") * " & " * join(isbetter[i,:]," & ") * " \\\\ \\hline \n"
+end
+println(isbetterstring)
 
-println([sum(isnan.(map(x->x.energy,solutions[:,:,i]))) for i=1:length(power)]))
+println([sum(isnan.(map(x->x.energy,solutions[:,:,i]))) for i=1:length(power)])
+isnan.(map(x->x.energy,solutions[:,:,:]))
 
 ## Everything below this line is to export to send to mathematica for plotting Gaussian results
 paramtablecsv = [[4.0, 2i+1.0,2j+1.0] for i=0:3, j=0:3];
@@ -57,6 +67,6 @@ variationald0csv = map(calcu0s,paramtablecsv);
 solutionscsv = solveEquationsParamsTable(tfinal, H, mclachlanResults[1:1], resultfuncs[1:1], paramtablecsv, variationald0csv, flowingTimeSolve, skip);
 toexportcsv = map(x->Symbolics.value.([x.ksol[1],-x.dsol[1],x.energy,x.variance,x.kurtosis]),solutionscsv[:,:,1])
 
-weval(W"Export"("Mclachlan Flowing Time Cubic.mx",expr_to_mathematica(toexportcsv)))
+weval(W"Export"("Mclachlan Flowing Time Cubic Stats.mx",expr_to_mathematica(toexportcsv)))
 
 map(x->x.energy,solutionscsv[:,:])

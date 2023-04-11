@@ -71,38 +71,12 @@ function calcu0(H::Operator)::Vector{Float64}
     Float64[result[i][2].val::Float64 for i=1:length(result)]
 end;
 
-function initcondsSolveMclachlan(power::Int, K::Vector{Num},dt::Vector{Num},Hsubs::Operator,resultfunc1::Function,param_vals::Vector{Float64}, variationald0::Float64)
-    findrootinit::Vector{Num}=resultfunc1(fill(variationald0,2(power+1)),[K;dt],param_vals,0.0)
-
-    initcondsguess=[[[K[1]::Num,1.0]];[[K[i]::Num,0.0] for i=2:power+1];[[dt[i]::Num,(i>1 ? variationald0*2 : variationald0),0.0,"Infinity"] for i=1:power+1]]
-    solpairsarray=wcall("FindRoot",findrootinit,initcondsguess,MaxIterations=100)::Vector{Pair{Num,Num}}
-    Float64[solpairsarray[i][2].val for i=1:length(solpairsarray)]
-end
-
 function solveMclachlanForSteadyState(power::Int, K::Vector{Num},dt::Vector{Num},Hsubs::Operator,resultfunc1::Function,param_vals::Vector{Float64}, variationald0::Float64)
     findrootinit::Vector{Num}=resultfunc1(fill(0.0,2(power+1)),[K;dt],param_vals,0.0)
 
-    initcondsguess=[[[K[1]::Num,1.0]];[[K[i]::Num,0.0,0.0,W"Infinity"] for i=2:power+1];[[dt[i]::Num,(i>1 ? variationald0*2 : variationald0),0.0,W"Infinity"] for i=1:power+1]]
+    initcondsguess=[[[K[1]::Num,1.0]];[[K[i]::Num,1.0,0.0,W"Infinity"] for i=2:power+1];[[dt[i]::Num,(i>1 ? 1.0 : 1.0),0.0,W"Infinity"] for i=1:power+1]]
     solpairsarray=wcall("FindRoot",findrootinit,initcondsguess,MaxIterations=1000)::Vector{Pair{Num,Num}}
     Float64[real(solpairsarray[i][2]).val for i=1:length(solpairsarray)]
-end
-
-function flowingTimeSolve(tfinal::Float64,power::Int, skip::Int, K::Vector{Num},dt::Vector{Num},H::Operator,resultfunc::Tuple{Function,Function},param_vals::Vector{Float64}, variationald0::Float64)
-    param_subs = Dict(params::Vector{Num}.=>param_vals)
-    Hsubs = substitute(H,param_subs)
-
-    
-    initconds = initcondsSolveMclachlan(power, K, dt, Hsubs, resultfunc[1], param_vals, variationald0)
-    println(param_vals)
-
-    daef=DAEFunction(resultfunc[2],syms=[:K,:d],paramsyms=[:a,:c,:g])
-    daep=DAEProblem(daef,fill(variationald0,2(power+1)),initconds,[0.0,tfinal],param_vals)
-    daesol=solve(daep,daskr())
-
-    ksol::Vector{Float64}=abs.(daesol[end][1:power+1])
-    dsol::Vector{Float64}=daesol[end][power+2:end]
-
-    return (ksol, dsol)
 end
 
 function zeroDerivativesSolve(tfinal::Float64,power::Int, skip::Int, K::Vector{Num},dt::Vector{Num},H::Operator,resultfunc::Tuple{Function,Function},param_vals::Vector{Float64}, variationald0::Float64)
@@ -115,6 +89,41 @@ function zeroDerivativesSolve(tfinal::Float64,power::Int, skip::Int, K::Vector{N
     dsol=steadystate[power+2:end]
 
     return (ksol, dsol)
+end
+
+function initcondsSolveMclachlan(power::Int, K::Vector{Num},dt::Vector{Num},Hsubs::Operator,resultfunc1::Function,param_vals::Vector{Float64}, variationald0::Float64)
+    findrootinit::Vector{Num}=resultfunc1([0.1;fill(0.1,2(power+1)-1)],[K;dt],param_vals,0.0)
+
+    initcondsguess=[[[K[1]::Num,1.0,0.0,"Infinity"]];[[K[i]::Num,1.0,0.0,"Infinity"] for i=2:power+1];[[dt[i]::Num,(i>1 ? variationald0 : variationald0),0.0,"Infinity"] for i=1:power+1]]
+    solpairsarray=wcall("FindRoot",findrootinit,initcondsguess,MaxIterations=100)::Vector{Pair{Num,Num}}
+    Float64[solpairsarray[i][2].val for i=1:length(solpairsarray)]
+end
+
+function flowingTimeSolve(tfinal::Float64,power::Int, skip::Int, K::Vector{Num},dt::Vector{Num},H::Operator,resultfunc::Tuple{Function,Function},param_vals::Vector{Float64}, variationald0::Float64)
+    param_subs = Dict(params::Vector{Num}.=>param_vals)
+    Hsubs = substitute(H,param_subs)
+
+    
+    initconds = initcondsSolveMclachlan(power, K, dt, Hsubs, resultfunc[1], param_vals, variationald0)
+    println(param_vals)
+
+    daef=DAEFunction(resultfunc[2],syms=[:K,:d],paramsyms=[:a,:c,:g])
+    daep=DAEProblem(daef,[0.1;fill(0.1,2(power+1)-1)],initconds,[0.0,tfinal],param_vals)
+    try
+        daesol=@time "Solving DAE" solve(daep,daskr())
+
+        ksol::Vector{Float64}=abs.(daesol[end][1:power+1])
+        dsol::Vector{Float64}=daesol[end][power+2:end]
+
+        return (ksol, dsol)
+    catch e
+        println("Error in DAE solve")
+        println(e)
+        println("Returning NaNs")
+        return (fill(NaN,power+1),fill(NaN,power+1))
+        #return zeroDerivativesSolve(tfinal,power, skip, K, dt, H, resultfunc, param_vals, variationald0)
+    end
+
 end
 
 function transform_result_to_function(mclachlanResult)
@@ -130,6 +139,9 @@ function solveEquations(tfinal, H, power, mclachlanResults, resultfuncs, param_v
 
     param_subs = Dict(params::Vector{Num}.=>param_vals)
     Hsubs = substitute(H,param_subs)
+    if power==0 && ksol[1]==0
+        ksol[1]=1.0
+    end
     hermitesol=Terms([Hermite(ksol[i+1],-dsol[i+1],0,skip*i) for i=0:power]);
     l1norm = GaussianIntegral(hermitesol)
     l2norm = sqrt(GaussianIntegral(hermitesol*hermitesol))
@@ -139,6 +151,7 @@ function solveEquations(tfinal, H, power, mclachlanResults, resultfuncs, param_v
     #Check that the normalization is correct
     if(!(GaussianIntegral(hermitesoll1).val[1] ≈ 1.0))
         println("Normalization is not correct for order", power, ": ", param_vals)
+        println(hermitesol)
     end
 
     energy::Float64 = GaussianIntegral(hermitesoll2*(Hsubs*hermitesoll2)).val
