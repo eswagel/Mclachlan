@@ -67,8 +67,10 @@ function calcu0(H::Operator)::Vector{Float64}
 
     energy = GaussianIntegral(psi*(H*psi))
 
-    result::Vector{Pair{Num,Num}} = wcall("FindRoot", derivative(energy,dn), [dn,1.0,0.0,"Infinity"])
-    Float64[result[i][2].val::Float64 for i=1:length(result)]
+    #result::Vector{Pair{Num,Num}} = wcall("FindRoot", derivative(energy,dn), [dn,1.0,0.0,"Infinity"])
+    #Float64[result[i][2].val::Float64 for i=1:length(result)]
+    result::Vector{Num} = wcall("SolveValues", derivative(energy,dn)~0, mdn, "Reals")
+    Float64[result[i].val::Float64 for i=1:length(result)]
 end;
 
 function solveMclachlanForSteadyState(power::Int, K::Vector{Num},dt::Vector{Num},Hsubs::Operator,resultfunc1::Function,param_vals::Vector{Float64}, variationald0::Float64)
@@ -139,9 +141,6 @@ function solveEquations(tfinal, H, power, mclachlanResults, resultfuncs, param_v
 
     param_subs = Dict(params::Vector{Num}.=>param_vals)
     Hsubs = substitute(H,param_subs)
-    if power==0 && ksol[1]==0
-        ksol[1]=1.0
-    end
     hermitesol=Terms([Hermite(ksol[i+1],-dsol[i+1],0,skip*i) for i=0:power]);
     l1norm = GaussianIntegral(hermitesol)
     l2norm = sqrt(GaussianIntegral(hermitesol*hermitesol))
