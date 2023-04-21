@@ -1,6 +1,48 @@
 include("MclachlanUpdated.jl")
 using Printf
 
+function initcondsSolveMclachlan(power::Int, K::Vector{Num},dt::Vector{Num},Hsubs::Operator,resultfunc1::Function,param_vals::Vector{Float64}, variationald0::Float64)
+    """Solve for consistent initial conditions for the Mclachlan equations setting derivatives to be 0.1"""
+    findrootinit::Vector{Num}=resultfunc1([0.1;fill(0.1,2(power+1)-1)],[K;dt],param_vals,0.0)
+
+    #This can be changed to a different initial guess (for example using variationald0)
+    initcondsguess=[[[K[1]::Num,1.0,0.0,"Infinity"]];[[K[i]::Num,1.0,0.0,"Infinity"] for i=2:power+1];[[dt[i]::Num,(i>1 ? variationald0 : variationald0),0.0,"Infinity"] for i=1:power+1]]
+    solpairsarray=wcall("FindRoot",findrootinit,initcondsguess,MaxIterations=100)::Vector{Pair{Num,Num}}
+    Float64[solpairsarray[i][2].val for i=1:length(solpairsarray)]
+end
+
+function flowingTimeSolve(tfinal::Float64,power::Int, skip::Int, K::Vector{Num},dt::Vector{Num},H::Operator,resultfunc::Tuple{Function,Function},param_vals::Vector{Float64}, variationald0::Float64)
+    """This is a the Flowing Time method for solveEquations()"""
+    param_subs = Dict(params::Vector{Num}.=>param_vals)
+    Hsubs = substitute(H,param_subs)
+
+    
+    initconds = initcondsSolveMclachlan(power, K, dt, Hsubs, resultfunc[1], param_vals, variationald0)
+    println(param_vals)
+
+    daef=DAEFunction(resultfunc[2],syms=[:K,:d],paramsyms=[:a,:c,:g])
+    daep=DAEProblem(daef,[0.1;fill(0.1,2(power+1)-1)],initconds,[0.0,tfinal],param_vals)
+
+    #In case of singularity making DAE solution not possible
+    try
+        daesol=@time "Solving DAE" solve(daep,daskr())
+
+        ksol::Vector{Float64}=abs.(daesol[end][1:power+1])
+        dsol::Vector{Float64}=daesol[end][power+2:end]
+
+        return (ksol, dsol)
+    catch e
+        println("Error in DAE solve")
+        println(e)
+        println("Returning NaNs")
+        return (fill(NaN,power+1),fill(NaN,power+1))
+
+        #I considered having it use the Zero Derivative method in case of singularity, but that makes it not a fair comparison between the methods
+        #return zeroDerivativesSolve(tfinal,power, skip, K, dt, H, resultfunc, param_vals, variationald0)
+    end
+
+end
+
 
 Kop = P-> (a*x+c*x^3)*P+(g*derivative(P,x));
 Lop=Dx*(a*X+c*X^3)+(g*Dx^2);
@@ -31,7 +73,7 @@ function calcQVMEnergy(H, d0)::Float64
 end
 variationalenergies = [calcQVMEnergy(substitute(H, Dict(params.=>paramtable[i,j])), variationald0[i,j]) for i=1:numij+1, j=1:numij+1]
 
-mclachlanResults=[performMclachlan(i, Lop, params, skip) for i=power];
+mclachlanResults=[performMclachlan(i, Lop, skip) for i=power];
 
 resultfuncs=transform_result_to_function(mclachlanResults);
 

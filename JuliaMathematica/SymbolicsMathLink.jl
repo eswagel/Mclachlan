@@ -1,8 +1,10 @@
 using Symbolics
 using MathLink
 
+#Types that could be used in MathLink
 const Mtypes = Union{MathLink.WTypes,Int8,Int16,Int32,Int64,Int128,UInt8,UInt16,UInt32,UInt64,UInt128,Float16,Float32,Float64,ComplexF16,ComplexF32,ComplexF64,Rational}
 
+#Turn a piecewise function from MathLink into a Symbolics.IfElse.ifelse function
 function decode_piecewise(lists::Vector{Vector{Num}}, lastval)
     @nospecialize
     second_to_lastval::Vector = lists[end]
@@ -26,6 +28,7 @@ function decode_piecewise(lists::Vector{Vector})
     ret
 end
 
+#Trying to enforce some type stability
 numize_if_not_vector(x::Vector{Num})=x
 numize_if_not_vector(x::Vector)=numize_if_not_vector.(x)
 numize_if_not_vector(x::Tuple)=[x...]
@@ -36,7 +39,7 @@ numize_if_not_vector(x::Pair)=numize_if_not_vector(x[1]) => numize_if_not_vector
 Num(x::Complex)=Num(real(x))+Num(imag(x))*im
 
 
-# Define a dictionary that maps Mathematica function names to their Julia equivalents
+# Define a dictionary that maps Mathematica function names to their Julia equivalents - not comprehensive
 const MATHEMATICA_TO_JULIA_FUNCTIONS::Dict{String,Function} = Dict(
     "Plus" => +,
     "Times" => *,
@@ -106,41 +109,43 @@ const JULIA_FUNCTIONS_TO_MATHEMATICA = Dict(
     :!= => "Unequal",
 )
 
-expr_to_mathematica(expr::Expr)::Mtypes=expr_to_mathematica(expr.head,expr.args)
-#=expr_to_mathematica(function_name::String,args::Vector)=begin
-    println(function_name,": ",args)
-    if haskey(JULIA_FUNCTIONS_TO_MATHEMATICA, Symbol(function_name))
-        return W"$(JULIA_FUNCTIONS_TO_MATHEMATICA[Symbol(function_name)])"(expr_to_mathematica.(args)...)
-    else
-        return W"$(function_name)"(expr_to_mathematica.(args)...)
-    end
-end=#
+function expr_to_mathematica(expr::Expr)::Mtypes
+    """ Convert a Julia expression to a MathLink expression using recursion"""
+    expr_to_mathematica(expr.head,expr.args)
+end
+#Differentials have to be handled specially
 expr_to_mathematica_differential_checker(function_head::Symbol,args::Vector,::Nothing)::MathLink.WExpr=W"$(string(function_head))"(expr_to_mathematica.(args)...)
 expr_to_mathematica_differential_checker(function_head::Symbol,args::Vector,m::RegexMatch)::MathLink.WExpr=begin
     return MathLink.WSymbol("D")(expr_to_mathematica.(args)...,MathLink.WSymbol("$(m[1])"))
 end
+#Variables that are vectors have to be handled specially, using the "■" character to symbolize that it's a vector
 expr_to_mathematica_vector_handler(expr::MathLink.WSymbol,index::Integer)=MathLink.WSymbol("$(expr.name)■$(index)")
 expr_to_mathematica_vector_handler(expr::MathLink.WExpr,index::Integer)=begin
     MathLink.WSymbol("$(expr.head.name)■$(index)")(expr.args...)
 end
+#The main function
 expr_to_mathematica(function_head::Symbol,args::Vector)::Mtypes=begin
+    """ Convert a Julia expression head and args to a MathLink expression"""
     if function_head==:call
         return expr_to_mathematica(Symbol(args[1]),args[2:end])
-    elseif function_head==:inv
+    elseif function_head==:inv #Symbolics uses inv instead of ^-1
         return MathLink.WSymbol("Power")(expr_to_mathematica(args[1]),-1)
     elseif function_head==:getindex
         would_be = expr_to_mathematica(args[1])
         return expr_to_mathematica_vector_handler(would_be, args[2])
     elseif function_head==:if
+        #If gets turned into piecewise
         cond = expr_to_mathematica(args[1])
         ifval = expr_to_mathematica(args[2])
         elseval = expr_to_mathematica(args[3])
         return MathLink.WSymbol("Piecewise")(MathLink.WSymbol("List")(MathLink.WSymbol("List")(ifval, cond)),elseval)
     elseif haskey(JULIA_FUNCTIONS_TO_MATHEMATICA, function_head)
+        #If it's a function that I've mapped to a Mathematica function
         return MathLink.WSymbol("$(JULIA_FUNCTIONS_TO_MATHEMATICA[function_head])")(expr_to_mathematica.(args)...)
     else
         fstring=string(function_head)
         m = match(r"Differential\(([^)]*)\)",fstring)
+        #Check if it's a differential and handle accordingly
         return expr_to_mathematica_differential_checker(function_head,args,m)
     end
 end
@@ -178,13 +183,6 @@ expr_to_mathematica(st::AbstractString)::MathLink.WSymbol=MathLink.WSymbol(st)
 expr_to_mathematica(x::BigFloat)=Float64(x)
 expr_to_mathematica(x::Irrational)=Float64(x)
 
-expr_to_mathematica(num::Num, symbolic::Val{true})::MathLink.WExpr=begin
-    expr::Expr = Symbolics.toexpr(num)::Expr
-    expr_to_mathematica(expr,Val(true))
-end
-expr_to_mathematica(vect::Vector{Num}, symbolic::Val{true})::MathLink.WExpr=MathLink.WSymbol("List")(expr_to_mathematica.(vect, Val(true))...)
-expr_to_mathematica(expr::Expr, symbolic::Val{true})::MathLink.WExpr=expr_to_mathematica(expr.head,expr.args)
-
 mathematica_to_expr_vector_checker(head::AbstractString,args::Vector,::Nothing)=begin
     varname=Symbol(head)
     (vars,)=Symbolics.@variables varname
@@ -214,7 +212,10 @@ mathematica_to_expr_differential_checker(head::MathLink.WSymbol,args::Vector)=be
     end
 end
 mathematica_to_expr_differential_checker(head,args::Tuple)=mathematica_to_expr_differential_checker(head,[args...])
-mathematica_to_expr(mathematica::MathLink.WExpr)=mathematica_to_expr_differential_checker(mathematica.head,mathematica.args)
+function mathematica_to_expr(mathematica::MathLink.WExpr)
+    """Converts a MathLink.WExpr to a Julia expression, checking if it's a differential"""
+    mathematica_to_expr_differential_checker(mathematica.head,mathematica.args)
+end
 mathematica_to_expr(symbol::MathLink.WSymbol)=mathematica_to_expr(symbol,match(r"(.+)■([0-9]+)",symbol.name))
 mathematica_to_expr(symbol::MathLink.WSymbol,::Nothing)=Symbolics.value(Symbolics.variable(symbol.name))
 mathematica_to_expr(symbol::MathLink.WSymbol,m::RegexMatch)=begin
@@ -235,6 +236,12 @@ end
 include("DSolveMathematica.jl")
 
 function wcall(head::AbstractString, args...; kwargs...)
+    """
+        Calls a Mathematica function on arguments of Symbolics and other Julia types, converting those arguments to Mathematica, and then changing the result back to Julia
+        @param head The name of the Mathematica function to call
+        @param args The arguments to the Mathematica function: can be Symbolics, Julia types, or Mathematica types
+        @param kwargs Keyword arguments to the Mathematica function: can be Symbolics, Julia types, or Mathematica types
+    """
     return wcall(head, expr_to_mathematica.(args)...;kwargs...)
 end
 wcall(head::AbstractString, args::Vararg{Mtypes}; kwargs...) = mathematica_to_expr(weval(MathLink.WSymbol(head)(args...; kwargs...)))

@@ -1,3 +1,5 @@
+# Help me comment the code below
+
 using SpecialFunctions
 using Latexify
 import Latexify: latexify
@@ -5,39 +7,28 @@ using Symbolics
 import Symbolics: substitute, derivative#So I can overload them
 using MathLink
 
-
-#Function to calculate the physicist's Hermite polynomial
-function hermite_poly(n::Int,x)
-    if n==0
-        return one(x)
-    elseif n==1
-        return 2x
-    else
-        return 2x*hermite_poly(n-1,x)-2(n-1)*hermite_poly(n-2,x)
-    end
-end
-
-@variables Pi
-
+#Built-in iszero is bad for Num
 iszero(x::Num)=isprimitivetype(typeof(x.val)) && x.val==0
 scalarize(arr::Symbolics.Arr{Num,1})::Vector{Num}=Num[arr[i] for i=1:length(arr)]
 Symbolics.derivative(::Union{Int8, Int16, Int32, Int64, Int128, UInt8, UInt16, UInt32, UInt64, UInt128, Float16, Float32, Float64, ComplexF16, ComplexF32, ComplexF64},args...)=0
 
+#Abstract type that will include Hermite and Terms
 abstract type HermiteType end
-const NumSym=Num#Union{Number,SymPy.Sym} #Eventually get rid of this it causes inefficient multiple dispatch
 
 #This struct models a Hermite basis state
 struct Hermite <: HermiteType
-    factor::NumSym #Coefficient in front
-    a::NumSym #Coefficient of x^2 in the exponent (should be negative)
-    b::NumSym #Coefficient of x in the exponent
+    factor::Num #Coefficient in front
+    a::Num #Coefficient of x^2 in the exponent (should be negative)
+    b::Num #Coefficient of x in the exponent
     order::UInt8 #Power of x in the coefficient
 end
 
-Hermite(a::NumSym,b::NumSym,order::Int)=Hermite(1,a,b,order)
+#Single Hermite basis state
+Hermite(a::Num,b::Num,order::Int)=Hermite(1,a,b,order)
 
 #When substituting into a Hermite, substitute into each part 
 Symbolics.substitute(herm::Hermite, args...)::Hermite=Hermite(Symbolics.substitute(herm.factor, args...), Symbolics.substitute(herm.a, args...), Symbolics.substitute(herm.b, args...), herm.order)
+
 #From two arrays, create a Dict for substitution and substitute
 Symbolics.substitute(herm::Hermite, syms1::Union{Vector{Num},Tuple{Num}}, syms2::Union{Vector{Num},Tuple{Num}})::Hermite = substitute(herm, Dict(syms1.=>syms2))
 Symbolics.substitute(herm::Num, syms1::Union{Vector{Num},Tuple{Num}}, syms2::Union{Vector{Num},Tuple{Num}})::Num = substitute(herm, Dict(syms1.=>syms2))
@@ -45,11 +36,12 @@ Symbolics.substitute(herm::Num, syms1::Union{Vector{Num},Tuple{Num}}, syms2::Uni
 Base.convert(::Type{Num},herm::Hermite)=herm.factor*x^herm.order*exp(herm.a*x^2+herm.b*x)
 
 #Take the derivative of a single Hermite with respect to some symbol
+#Always returns a Terms with three Hermites
 Symbolics.derivative(herm::Hermite, var::Num)::Terms=begin
     result=Vector{Hermite}(undef,3) #Eventual output
 
     facdiff=derivative(herm.factor,var)
-    #This if chain essentially does the product rule for factor, a, and b
+    
     result[1]=Hermite(facdiff,herm.a,herm.b,herm.order)
 
     adiff=derivative(herm.a,var)
@@ -130,13 +122,6 @@ Base.:+(herm::Hermite,terms::Terms)::Terms=begin
     if iszero(herm.factor)
         return Terms(terms.terms)
     end
-    #=for i=1:length(terms.terms)
-        if addable(terms.terms[i],herm)
-            new_terms=copy(terms.terms)
-            new_terms[i]=(terms.terms[i]+herm).terms[1]
-            return Terms(new_terms)
-        end
-    end=#
     return Terms([terms.terms;herm])
 end
 Base.:+(terms::Terms,herm::Hermite)=herm+terms
@@ -144,6 +129,8 @@ Base.:+(terms::Terms,herm::Hermite)=herm+terms
 Base.:+(a::Terms,b::Terms)=begin
     return Terms([a.terms;b.terms])
 end
+
+#Subtraction
 
 Base.:-(a::Hermite,b::Terms)::Terms=begin
     sum=Vector{Hermite}(undef,length(b)+1)
@@ -164,7 +151,10 @@ Base.:-(a::Terms,b::Terms)::Terms=begin
     return Terms(sum)
 end
 Base.:-(a::HermiteType)=(-1)*a
+
+
 #Multiplying with Terms is just distribution
+#Multiplication is multithreaded
 Base.:*(a::Terms,b::Terms)::Terms=begin
     new_terms=Vector{Hermite}(undef,length(a)*length(b))
     L=length(b)
@@ -185,8 +175,11 @@ end
 Base.:*(herm::Hermite,terms::Terms)=terms*herm
 Base.:*(fact,terms::Terms)=Terms(fact .* terms.terms)
 Base.:*(terms::Terms,fact)=fact*terms
+
+#Division
 Base.:/(terms::Terms, fact)=terms*(1/fact)
 
+#Exponentiation
 Base.:^(terms::Terms, p::Integer)=begin
     new_t = terms
     for i=1:p-1
@@ -201,6 +194,7 @@ function HalfIntegerGamma(n::Int)
 end
 
 #Integration of a Hermite basis state with a, b, and order.
+#Can only have order up to 6 if b is not zero
 GaussianIntegral(herm::Hermite)::Num=begin
     if iszero(herm.factor)
         return zero(Num)
@@ -231,111 +225,11 @@ GaussianIntegral(herm::Hermite)::Num=begin
         else
             throw(DomainError(order,"Integral for this order Hermite polynomial has not been calculated."))
         end
-        return herm.factor*result*sqrt(Pi)*exp(-b^2/(4a))
+        return herm.factor*result*sqrt(pi)*exp(-b^2/(4a))
     end
-end
-GaussianIntegral(::Type{Function}, herm::Hermite)::Expr = GaussianIntegral(Function, herm, Val(iszero(herm.factor)))
-GaussianIntegral(::Type{Function}, herm::Hermite, ::Val{true})::Expr=Meta.quot(0.0)
-GaussianIntegral(::Type{Function}, herm::Hermite, ::Val{false})::Expr=begin
-    if iszero(herm.b)
-        if isodd(herm.order)
-            return GaussianIntegral(Function, herm, Val(true))
-        else
-            return GaussianIntegral(Function, herm, Val(2))
-        end
-    else
-        return GaussianIntegral(Function, herm, Val(3))
-    end
-end
-GaussianIntegral(::Type{Function}, herm::Hermite, ::Val{2})::Expr=Expr(:call,:*,Symbolics.toexpr(herm.factor)::Union{Number, Symbol, Expr},Expr(:call,:^,Expr(:call,:*,-1,Symbolics.toexpr(herm.a)::Union{Number, Symbol, Expr}),-(1//2) - herm.order//2),SpecialFunctions.gamma((1 + herm.order)//2))
-GaussianIntegral(::Type{Function}, herm::Hermite, ::Val{3})::Expr=begin
-    a = herm.a
-    b = herm.b
-    order = herm.order
-    if order==0
-        result=1/sqrt(-a)
-    elseif order==1
-        result=-(b/(2*sqrt(-a)*a))
-    elseif order==2
-        result=-((1 - b^2/(2a))/(2*sqrt(-a)*a))
-    elseif order==3
-        result=-((3b*(1 - b^2/(6a)))/(4*(-a)^(3/2)*a))
-    elseif order==4
-        result=(3*(1 - b^2/a + b^4/(12a^2)))/(4*sqrt(-a)*a^2)
-    elseif order==5
-        result=-((15b*(1 - b^2/(3a) + b^4/(60a^2)))/(8*(-a)^(5/2)*a))
-    elseif order==6
-        result=-((15*(1 - (3b^2)/(2a) + b^4/(4a^2) - b^6/(120a^3)))/(8*sqrt(-a)*a^3))
-    else
-        throw(DomainError(order,"Integral for this order Hermite polynomial has not been calculated."))
-    end
-    return Expr(:call,:*,Symbolics.toexpr(herm.factor),Symbolics.toexpr(result),Symbolics.toexpr(sqrt(Pi)),Expr(:call,:exp,Expr(:call,:/,Expr(:call,:^,b,2),Expr(:call,:*,4,a))))
 end
 
-GaussianIntegral(::Type{MathLink.WExpr}, herm::Hermite)::MathLink.WExpr = GaussianIntegral(MathLink.WExpr, herm, Val(iszero(herm.factor)))
-GaussianIntegral(::Type{MathLink.WExpr}, herm::Hermite, ::Val{true})::MathLink.WExpr=Meta.quot(0.0)
-GaussianIntegral(::Type{MathLink.WExpr}, herm::Hermite, ::Val{false})::MathLink.WExpr=begin
-    if iszero(herm.b)
-        if isodd(herm.order)
-            return GaussianIntegral(MathLink.WExpr, herm, Val(true))
-        else
-            return GaussianIntegral(MathLink.WExpr, herm, Val(2))
-        end
-    else
-        return GaussianIntegral(MathLink.WExpr, herm, Val(3))
-    end
-end
-GaussianIntegral(::Type{MathLink.WExpr}, herm::Hermite, ::Val{2})::MathLink.WExpr=W`Times`(expr_to_mathematica(herm.factor),W`Power`(W`Times`(-1,expr_to_mathematica(herm.a)),-(1//2) - herm.order//2),SpecialFunctions.gamma((1 + herm.order)//2))
-GaussianIntegral(::Type{MathLink.WExpr}, herm::Hermite, ::Val{3})::MathLink.WExpr=begin
-    a = herm.a
-    b = herm.b
-    order = herm.order
-    if order==0
-        result=1/sqrt(-a)
-    elseif order==1
-        result=-(b/(2*sqrt(-a)*a))
-    elseif order==2
-        result=-((1 - b^2/(2a))/(2*sqrt(-a)*a))
-    elseif order==3
-        result=-((3b*(1 - b^2/(6a)))/(4*(-a)^(3/2)*a))
-    elseif order==4
-        result=(3*(1 - b^2/a + b^4/(12a^2)))/(4*sqrt(-a)*a^2)
-    elseif order==5
-        result=-((15b*(1 - b^2/(3a) + b^4/(60a^2)))/(8*(-a)^(5/2)*a))
-    elseif order==6
-        result=-((15*(1 - (3b^2)/(2a) + b^4/(4a^2) - b^6/(120a^3)))/(8*sqrt(-a)*a^3))
-    else
-        throw(DomainError(order,"Integral for this order Hermite polynomial has not been calculated."))
-    end
-    return W`Times`(expr_to_mathematica(herm.factor),expr_to_mathematica(result),expr_to_mathematica(sqrt(Pi)),W`Exp`(W`Divide`(W`Power`(b,2),W`Times`(4,a))))
-end
-#=
-GaussianIntegral(herm::Hermite)::Num=GaussianIntegral(herm, Val(iszero(herm.factor)))
-GaussianIntegral(herm::Hermite, ::Val{true})::Num=zero(Num)
-GaussianIntegral(herm::Hermite, ::Val{false})::Num=GaussianIntegral(herm.factor, herm.a, herm.b, herm.order, Val(iszero(herm.b)))
-GaussianIntegral(factor, a, b, order, ::Val{true})::Num=GaussianIntegral(factor, a, order, Val(iseven(order)))
-GaussianIntegral(factor, a, order, ::Val{true})::Num=factor*(-a)^(-(1/2) - order/2)*SpecialFunctions.gamma((1 + order)/2)
-GaussianIntegral(factor, a, order, ::Val{false})::Num=Num(0)
-GaussianIntegral(factor, a, b, order, ::Val{false})::Num=begin
-    if order==0
-        result=1/sqrt(-a)
-    elseif order==1
-        result=-(b/(2*sqrt(-a)*a))
-    elseif order==2
-        result=-((1 - b^2/(2a))/(2*sqrt(-a)*a))
-    elseif order==3
-        result=-((3b*(1 - b^2/(6a)))/(4*(-a)^(3/2)*a))
-    elseif order==4
-        result=(3*(1 - b^2/a + b^4/(12a^2)))/(4*sqrt(-a)*a^2)
-    elseif order==5
-        result=-((15b*(1 - b^2/(3a) + b^4/(60a^2)))/(8*(-a)^(5/2)*a))
-    elseif order==6
-        result=-((15*(1 - (3b^2)/(2a) + b^4/(4a^2) - b^6/(120a^3)))/(8*sqrt(-a)*a^3))
-    else
-        throw(DomainError(order,"Integral for this order Hermite polynomial has not been calculated."))
-    end
-    return factor*result*sqrt(pi)*exp(-b^2/(4a))
-end=#
+#Integration of a Terms object (parallelized)
 GaussianIntegral(terms::Terms)::Num=begin
     ints=zeros(Num,Threads.nthreads())
     Threads.@threads for i=1:length(terms.terms)
@@ -344,6 +238,7 @@ GaussianIntegral(terms::Terms)::Num=begin
     return sum(ints)
 end
 GaussianIntegral(terms::Terms,::Val{false})::Num=GaussianIntegral(terms)
+#To not parallelize, use Val(true)
 GaussianIntegral(terms::Terms,::Val{true})::Num=begin
     ints=Num(0)
     for i=1:length(terms.terms)
@@ -352,56 +247,15 @@ GaussianIntegral(terms::Terms,::Val{true})::Num=begin
     return ints
 end
 
-GaussianIntegral(::Type{Function}, terms::Terms, args...)=begin
-    funcs=Vector{Expr}(undef, length(terms.terms))
-    parameters = Expr(:tuple, paramize.(args)...)
-    Threads.@threads for i=1:length(terms.terms) #Parallelize
-        println(i, "/", length(terms.terms))
-        integral = @time "Term $i Integration" GaussianIntegral(Function, terms.terms[i])
-        funcs[i]=Expr(:function, parameters, integral)
-    end
-    return funcs
-end
-GaussianIntegral(::Type{Function}, terms::Terms, ::Val{true}, args...)::Vector{Function}=begin
-    funcs=Vector{Function}(undef,length(terms))
-    Threads.@threads for i=1:length(terms.terms)
-        println(i, "/", length(terms.terms))
-        integral = GaussianIntegral(terms.terms[i])
-        if iszero(integral)
-            funcs[i] = (args...)->0.0
-            continue
-        end
-        funcs[i]=build_function(integral,args...,linenumbers=false, skipzeros=true, expression=Val{false})
-    end
-    return funcs
-end
-GaussianIntegral(::Type{MathLink.WExpr}, terms::Terms, args...)=begin
-    exprs=MathLink.WExpr[]
-    integrals = Vector{Num}(undef, length(terms.terms))
-    Threads.@threads for i=1:length(terms.terms) #Parallelize
-        integral = GaussianIntegral(terms.terms[i])
-        integrals[i]=integral
-    end
-    for i=1:length(terms.terms)
-        println(i, "/", length(terms.terms))
-        if iszero(integrals[i])
-            continue
-        end
-        push!(exprs,@time "Term $i Mathematica" expr_to_mathematica(integrals[i], Val(true)))
-    end
-    return W`Plus`(exprs...)
-end
-function paramize(val::Vector{Num})
-    return Expr(:tuple, paramize.(val)...)
-end
-paramize(val::Num)=Symbolics.toexpr(val)
-paramize(val::Symbolics.Arr{Num,1})::Symbol=val.value.name
+#An Operator manipulates the Hermites
 struct Operator
-    func::Function
+    func::Function #Must be a function that takes a Hermite and returns a Terms
 end
 
 #Multiplying an operator by a Hermite applies it
 Base.:*(op::Operator, herm::Hermite)::Terms=op.func(herm)::Terms
+
+#Choose whether to parallelize based on the number of terms in the Terms object
 operator_multiplication_parallel_handler(op::Operator, terms::Terms, ::Val{true})::Terms=begin
     sum=fill(Hermite[],Threads.nthreads())
     for i=1:length(terms.terms)
@@ -417,9 +271,11 @@ operator_multiplication_parallel_handler(op::Operator, terms::Terms,::Val{false}
     return sum
 end
 Base.:*(op::Operator, terms::Terms)=operator_multiplication_parallel_handler(op,terms,Val(length(terms)>30))
+
 #Or the operator can be called directly
 (op::Operator)(herm::Terms)::Terms=op*herm
 (op::Operator)(herm::Hermite)::Terms=op*herm
+(op::Operator)(herm)::Terms=op*herm
 
 #You can also raise an operator to an integer power
 Base.:^(op::Operator,expon::Int)=begin
@@ -451,11 +307,12 @@ Base.:-(op::Operator)=Operator((herm::Hermite)->-(op*herm))
 
 Symbolics.substitute(op::Operator, args...)=Operator((herm::Hermite)->Symbolics.substitute(op*herm, args...))
 
+#Define the identity Operator
 Base.one(::Operator)=Operator((herm::Hermite)->Terms(herm))
 Base.one(::Type{Operator})=Operator((herm::Hermite)->Terms(herm))
 
-#X raises the order (like multiplying by x)
-Symbolics.@variables x t
+#X raises the order of a Hermite basis state (like multiplying by x)
+@variables x t
 function Xfunc(herm::Hermite)::Terms
     Terms(Hermite(herm.factor, herm.a, herm.b, herm.order+1))
 end

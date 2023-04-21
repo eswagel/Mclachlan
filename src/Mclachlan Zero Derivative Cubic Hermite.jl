@@ -1,6 +1,30 @@
 include("MclachlanUpdated.jl")
 using Printf
 
+function solveMclachlanForSteadyState(power::Int, K::Vector{Num},dt::Vector{Num},Hsubs::Operator,resultfunc1::Function,param_vals::Vector{Float64}, variationald0::Float64)
+    """Solve for the steady state of the Mclachlan equation setting derivatives to be zero"""
+
+    findrootinit::Vector{Num}=resultfunc1(fill(0.0,2(power+1)),[K;dt],param_vals,0.0)
+
+    #This can be changed to a different initial guess (for example using variationald0)
+    initcondsguess=[[[K[1]::Num,1.0]];[[K[i]::Num,1.0,0.0,W"Infinity"] for i=2:power+1];[[dt[i]::Num,(i>1 ? 1.0 : 1.0),0.0,W"Infinity"] for i=1:power+1]]
+    solpairsarray=wcall("FindRoot",findrootinit,initcondsguess,MaxIterations=1000)::Vector{Pair{Num,Num}}
+    Float64[real(solpairsarray[i][2]).val for i=1:length(solpairsarray)]
+end
+
+function zeroDerivativesSolve(tfinal::Float64,power::Int, skip::Int, K::Vector{Num},dt::Vector{Num},H::Operator,resultfunc::Tuple{Function,Function},param_vals::Vector{Float64}, variationald0::Float64)
+    """This is the Zero Derivative method for solveEquations()"""
+    param_subs = Dict(params::Vector{Num}.=>param_vals)
+    Hsubs = substitute(H,param_subs)
+    println(param_vals)
+
+    steadystate=solveMclachlanForSteadyState(power, K, dt, Hsubs, resultfunc[1], param_vals, variationald0)
+    ksol=steadystate[1:power+1]
+    dsol=steadystate[power+2:end]
+
+    return (ksol, dsol)
+end
+
 
 Kop = P-> (a*x+c*x^3)*P+(g*derivative(P,x));
 Lop=Dx*(a*X+c*X^3)+(g*Dx^2);
@@ -31,7 +55,7 @@ function calcQVMEnergy(H, d0)::Float64
 end
 variationalenergies = [calcQVMEnergy(substitute(H, Dict(params.=>paramtable[i,j])), variationald0[i,j]) for i=1:numij+1, j=1:numij+1]
 
-mclachlanResults=[performMclachlan(i, Lop, params, skip) for i=power];
+mclachlanResults=[performMclachlan(i, Lop, skip) for i=power];
 
 resultfuncs=transform_result_to_function(mclachlanResults);
 
