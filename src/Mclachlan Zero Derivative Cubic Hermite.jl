@@ -127,11 +127,11 @@ isnan.(map(x->x.energy,solutions[:,:,:]))
 
 
 ## Everything below this line is to export to send to mathematica for plotting Gaussian results
-paramtablecsv = [[10.0, 2i+1.0,2j+1.0] for i=0:10, j=0:10];
+paramtablecsv = [[2.0, 2i+1.0,2j+1.0] for i=0:2, j=0:2];
 variationald0csv = map(calcu0s,paramtablecsv);
 solutionscsv = solveEquationsParamsTable(tfinal, H, mclachlanResults[1:1], resultfuncs[1:1], paramtablecsv, variationald0csv, zeroDerivativesSolve, skip);
 toexportcsv = map(x->Symbolics.value.([x.ksol[1],-x.dsol[1],x.energy,x.variance,x.kurtosis]),solutionscsv[:,:,1])
 
-weval(W"Export"("Mclachlan Zero Derivative Cubic Stats.mx",expr_to_mathematica(toexportcsv)))
+weval(W"Export"("Mclachlan Zero Derivative Cubic.mx",expr_to_mathematica(toexportcsv)))
 
 map(x->x.energy,solutionscsv[1,:])

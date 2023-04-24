@@ -1,5 +1,6 @@
 using Symbolics
 using MathLink
+using SpecialFunctions
 
 #Types that could be used in MathLink
 const Mtypes = Union{MathLink.WTypes,Int8,Int16,Int32,Int64,Int128,UInt8,UInt16,UInt32,UInt64,UInt128,Float16,Float32,Float64,ComplexF16,ComplexF32,ComplexF64,Rational}
@@ -27,17 +28,6 @@ function decode_piecewise(lists::Vector{Vector})
     end
     ret
 end
-
-#Trying to enforce some type stability
-numize_if_not_vector(x::Vector{Num})=x
-numize_if_not_vector(x::Vector)=numize_if_not_vector.(x)
-numize_if_not_vector(x::Tuple)=[x...]
-numize_if_not_vector(x::Num)=x
-numize_if_not_vector(x)=Num(x)
-numize_if_not_vector(x::Pair)=numize_if_not_vector(x[1]) => numize_if_not_vector(x[2])
-
-Num(x::Complex)=Num(real(x))+Num(imag(x))*im
-
 
 # Define a dictionary that maps Mathematica function names to their Julia equivalents - not comprehensive
 const MATHEMATICA_TO_JULIA_FUNCTIONS::Dict{String,Function} = Dict(
@@ -70,12 +60,54 @@ const MATHEMATICA_TO_JULIA_FUNCTIONS::Dict{String,Function} = Dict(
     "C" => i->Symbolics.variable("C_$i"),
     "Part" => getindex,
     "Equal" => Base.:~,
+    "Unequal" => !=,
     "Piecewise" => decode_piecewise,
     "Greater" => >,
     "Less" => <,
     "GreaterEqual" => >=,
     "LessEqual" => <=,
     "Complex" => (a,b)->a+b*im,
+    "Conjugate" => conj,
+    "Re" => real,
+    "Im" => imag,
+    "If" => Symbolics.IfElse.ifelse,
+    "And" => Base.:&,
+    "Or" => Base.:|,
+    "Not" => Base.:!,
+    "True" => x->true,
+    "False" => x->false,
+    "Pi" => x->π,
+    "E" => x->exp(1),
+    "I" => x->im,
+    "Infinity" => x->Inf,
+    "Indeterminate" => x->NaN,
+    "Arg" => angle,
+    "Mod" => mod,
+    "Floor" => floor,
+    "Ceiling" => ceil,
+    "Round" => round,
+    "Sign" => sign,
+    "Min" => min,
+    "Max" => max,
+    "GoldenRatio" => x->(1+sqrt(5))/2,
+    "GoldenAngle" => x->2π*(1+sqrt(5))/2,
+    "ComplexInfinity" => x->Inf+Inf*im,
+    "Undefined" => x->nothing,
+    "Log10" => log10,
+    "Log2" => log2,
+    "LogisticSigmoid" => x->1/(1+exp(-x)),
+    "Sinc" => sinc,
+    "Factorial" => factorial,
+    "Gamma" => gamma,
+    "Erf" => erf,
+    "Erfc" => erfc,
+    "BesselJ" => besselj,
+    "BesselY" => bessely,
+    "BesselI" => besseli,
+    "BesselK" => besselk,
+    "HankelH1" => hankelh1,
+    "HankelH2" => hankelh2,
+    "Zeta" => zeta
 )
 
 const JULIA_FUNCTIONS_TO_MATHEMATICA = Dict(
@@ -107,7 +139,47 @@ const JULIA_FUNCTIONS_TO_MATHEMATICA = Dict(
     :>= => "GreaterEqual",
     :<= => "LessEqual",
     :!= => "Unequal",
+    :conj => "Conjugate",
+    :real => "Re",
+    :imag => "Im",
+    :getindex => "Part",
+    :ifelse => "If",
+    :and => "And",
+    :or => "Or",
+    :not => "Not",
+    :arg => "Arg",
+    :mod => "Mod",
+    :floor => "Floor",
+    :ceil => "Ceiling",
+    :round => "Round",
+    :sign => "Sign",
+    :min => "Min",
+    :max => "Max",
+    :log10 => "Log10",
+    :log2 => "Log2",
+    :sinc => "Sinc",
+    :factorial => "Factorial",
+    :gamma => "Gamma",
+    :erf => "Erf",
+    :erfc => "Erfc",
+    :besselj => "BesselJ",
+    :bessely => "BesselY",
+    :besseli => "BesselI",
+    :besselk => "BesselK",
+    :hankelh1 => "HankelH1",
+    :hankelh2 => "HankelH2",
+    :zeta => "Zeta"
 )
+
+#Trying to enforce some type stability
+numize_if_not_vector(x::Vector{Num})=x
+numize_if_not_vector(x::Vector)=numize_if_not_vector.(x)
+numize_if_not_vector(x::Tuple)=[x...]
+numize_if_not_vector(x::Num)=x
+numize_if_not_vector(x)=Num(x)
+numize_if_not_vector(x::Pair)=numize_if_not_vector(x[1]) => numize_if_not_vector(x[2])
+
+Num(x::Complex)=Num(real(x))+Num(imag(x))*im
 
 function expr_to_mathematica(expr::Expr)::Mtypes
     """ Convert a Julia expression to a MathLink expression using recursion"""
@@ -217,7 +289,13 @@ function mathematica_to_expr(mathematica::MathLink.WExpr)
     mathematica_to_expr_differential_checker(mathematica.head,mathematica.args)
 end
 mathematica_to_expr(symbol::MathLink.WSymbol)=mathematica_to_expr(symbol,match(r"(.+)■([0-9]+)",symbol.name))
-mathematica_to_expr(symbol::MathLink.WSymbol,::Nothing)=Symbolics.value(Symbolics.variable(symbol.name))
+mathematica_to_expr(symbol::MathLink.WSymbol,::Nothing)=begin
+    if haskey(MATHEMATICA_TO_JULIA_FUNCTIONS, symbol.name)
+        return MATHEMATICA_TO_JULIA_FUNCTIONS[symbol.name]
+    else
+        return Symbolics.variable(symbol.name)
+    end
+end
 mathematica_to_expr(symbol::MathLink.WSymbol,m::RegexMatch)=begin
     varname=Symbol(m[1])
     (vars,)=scalarize.(Symbolics.@variables $varname[1:parse(Int8,m[2])])
